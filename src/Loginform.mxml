@@ -1,0 +1,952 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" minWidth="955" minHeight="600" height="626" width="910">
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+	</fx:Declarations>
+	
+	
+	<fx:Script>
+		<![CDATA[
+		
+			import json.*;
+			
+			import mx.controls.Alert;
+			import mx.events.MenuEvent;
+	
+			var AgentNo:String = "";
+			var AgentPassword:String = "";
+			var deviceId:String = "";
+			
+			var request:String = "";
+			var nowtime:String = "";
+			
+			var bufferArray:ByteArray = new ByteArray();
+			
+			private var socket:Socket = new Socket();
+			
+			public function Login():void {
+				loginwindow.visible=true;
+			}
+			
+			public function cancerWindows():void{
+				loginwindow.visible = false;
+			}
+			
+			public function LoginWindows():void{
+				initApp(CTIServers.text,Number(ports.text));
+				
+				AgentNo=agentNo.text;
+				AgentPassword=password.text;
+				deviceId=deviceNo.text;
+				loginwindow.visible = false;
+			}
+			
+			private var agetnsatatdata:Array=[ {label:"登陆"},{label:"退出"}, {label:"就绪"}, {label:"离席" , children:[{label:"话后处理"},{label:"开会"},{label:"小休"},{label:"午餐"},{label:"培训"}]} ];
+			
+			private var ButtondataPop:Array=[   {label:"转接"}, {label:"单步转接"} , {label:"会议"} , {label:"单步会议"} ];
+			
+			protected function itemClickHandlera(event:MenuEvent):void{ 
+				if(event.item["label"]=="登陆"){
+					loginwindow.visible=true;
+				}
+				if(event.item["label"]=="退出"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"Logout","Logout","0");
+				}
+				if(event.item["label"]=="就绪"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"Ready","SetState","0");
+				}
+				if(event.item["label"]=="话后处理"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"NotReady","SetState","0");
+				}
+				if(event.item["label"]=="开会"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"NotReady","SetState","1");
+				}
+				if(event.item["label"]=="小休"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"NotReady","SetState","2");
+				}
+				if(event.item["label"]=="午餐"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"NotReady","SetState","3");
+				}
+				if(event.item["label"]=="培训"){
+					setAgentState("setAgentState",deviceId,AgentNo,AgentPassword,null,"NotReady","SetState","4");
+				}
+				
+			}
+			
+			protected function itemClickHandlerb(event:MenuEvent):void{ 
+				
+				if(event.item["label"]=="转接"){
+					
+					transferCall(deviceId,KeepCallId,CallId);
+				}
+				if(event.item["label"]=="单步转接"){
+					
+					CheckCallNuma();
+				}
+				if(event.item["label"]=="会议"){
+					
+					conferenceCall(deviceId,KeepCallId,CallId);
+				}
+				if(event.item["label"]=="单步会议"){
+					
+					CheckCallNumb();
+				}
+				
+				
+			}
+			
+			public function initApp(CTIserver:String,port:int):void{
+				
+				try
+				{  
+					socket.connect(CTIserver,port);									//连接服务器
+					socket.addEventListener(Event.CONNECT,initServer);				//连接成功
+					socket.addEventListener(IOErrorEvent.IO_ERROR, OnIO_Error);		//连接失败
+					socket.addEventListener(Event.CLOSE,OnEventfunClose);			//连接中断
+					socket.addEventListener(ProgressEvent.SOCKET_DATA,onSocketData);//接收到服务器的信息
+				} 
+				catch(error:Error) 
+				{
+					Alert.show("error=" + error.message);
+				}
+			}
+			
+			public function OnIO_Error(event:Event):void{
+				Alert.show("连接服务器失败！");
+			}
+			
+			public function OnEventfunClose(event:Event):void{
+				Alert.show("连接已关闭");
+			}
+			
+			var requestbody:String = "";
+			var datalength:int = 0;
+			
+			public function initServer(event:Event):void{
+				
+				var jsonobj = new Object();
+				jsonobj.method = "initSession";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				sendarray[0] = "";
+				sendarray[1] = "Client" + getdata();
+				sendarray[2] = "172.16.0.142";
+				sendarray[3] = "Async";
+				jsonobj.params = sendarray;
+				
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody ;
+				
+				sendMessage(request);
+			}
+			
+			
+			private function onSocketData( eventrogressEvent ):void {	
+				try
+				{	//接收服务器发回的信息
+					var buf:ByteArray = new ByteArray();
+					socket.readBytes(buf,0,socket.bytesAvailable);
+				} 
+				catch(error:IOError) 
+				{
+					Alert.show("socket error :" + error.message);
+				}
+				
+				for(var j:int=0;j<buf.length; j++){
+					
+					bufferArray[bufferArray.length] = buf[j];
+				}
+				
+				//var eventStr:String = new String(bufferArray);
+				var headbuf:ByteArray = new ByteArray();	//记录发回信息的信息头：前64位
+				var head:String ="";
+				
+				if(bufferArray.length>=64){
+					//分离信息，去除信息的前64位作为信息头
+					for(var i:int = 0; i<64; i++){
+						headbuf[i] = bufferArray[i];
+					}
+					
+					head = headbuf.toString().substring(0,4);
+						
+					if(head=="CT40"){
+						
+						judgemessage(bufferArray);
+						
+					}else{
+						Alert.show("TCP Information Error");
+					}
+				}
+			}
+			
+			
+			internal function sendMessage(msg:String):void{  //发送信息
+
+				var Smessage:ByteArray = new ByteArray();
+				
+				try
+				{	//向服务器发送信息msg
+					Smessage.writeUTFBytes(msg);
+					socket.writeBytes(Smessage);
+					socket.flush();
+				} 
+				catch(error:Error) 
+				{
+					Alert.show(error.message+"==="+error.getStackTrace()+error.toString());
+				}
+			}
+			
+			
+			public function getdata():String{  	//获取当前时间并转换成String
+				
+				var dt:Date = new Date();
+				nowtime = dt.fullYear.toString()+"-"+(dt.month+1).toString()+"-"+dt.date.toString()+"|"+dt.hours.toString()+":"+dt.minutes.toString()+":"+dt.seconds.toString()+":"+dt.milliseconds.toString();
+				
+				return nowtime;
+			}
+			
+			
+			var invokeid:int = 1;  		//记录这是第几次向服务器发出的消息
+			var invokeNo:String = "";	
+			public function getInvokeID():String{  
+				
+				if(invokeid<10){
+					invokeNo = "0000000"+ invokeid.toString();
+				}else if(invokeid>=10&&invokeid<100){
+					invokeNo = "000000"+ invokeid.toString();
+				}else if(invokeid>=100&&invokeid<1000){
+					invokeNo = "00000" + invokeid.toString();
+				}else if(invokeid>=1000&&invokeid<10000){
+					invokeNo = "0000" + invokeid.toString();
+				}else if(invokeid>=10000&&invokeid<100000){
+					invokeNo = "000" + invokeid.toString();
+				}else if(invokeid>=100000&&invokeid<1000000){
+					invokeNo = "00" + invokeid.toString();
+				}else if(invokeid>=1000000&&invokeid<10000000){
+					invokeNo = "0" + invokeid.toString();
+				}else if(invokeid>=10000000&&invokeid<100000000){
+					invokeNo = invokeid.toString();
+				}else{
+					invokeid = 1;
+					invokeNo = "00000001";
+				}
+				invokeid++;
+				
+				return invokeNo;
+			}
+			
+			var datalengths:String="";
+			
+			private function getdatalength(datalength:int):String{ //把int型信息长度转换成String
+				
+				if(datalength<10){
+					datalengths = "0000000"+ datalength.toString();
+				}else if(datalength>=10&&datalength<100){
+					datalengths = "000000"+ datalength.toString();
+				}else if(datalength>=100&&datalength<1000){
+					datalengths = "00000" + datalength.toString();
+				}else if(datalength>=1000&&datalength<10000){
+					datalengths = "0000" + datalength.toString();
+				}else if(datalength>=10000&&datalength<100000){
+					datalengths = "000" + datalength.toString();
+				}else if(datalength>=100000&&datalength<1000000){
+					datalengths = "00" + datalength.toString();
+				}else if(datalength>=1000000&&datalength<10000000){
+					datalengths = "0" + datalength.toString();
+				}else if(datalength>=10000000&&datalength<100000000){
+					datalengths = datalength.toString();
+				}
+				return datalengths;
+			}
+			
+			
+			private function judgemessage(messages:ByteArray):void{  //判断接收到的消息并作出初步处理
+				
+				var messagelengths:int  = 0;
+				var bodylengths:int = 0;
+				var messagetypes:String = "";
+				
+				var messagehead:ByteArray = new ByteArray();
+				var messagebody:ByteArray = new ByteArray();
+				
+				if(messages.length>=64){
+					
+					for(var i:int = 0;i<64;i++){
+						messagehead[i] = messages[i];
+					}
+					
+					var b:int = 0;
+					
+					for(var j:int = 64;j<messages.length;j++){
+						
+						messagebody[b] = messages[j];
+						b++;
+					}
+					
+					messagelengths = Number( messagehead.toString().substring(6,14));
+					
+					messagetypes = messagehead.toString().substring(4,6);
+					
+					bodylengths = messagebody.length;
+					
+					var handlemessage:ByteArray = new ByteArray();
+					var longmessage:ByteArray = new ByteArray();
+					
+					if(bodylengths>messagelengths){
+						
+						for(var i:int=0;i<messagelengths;i++){
+							handlemessage[i] =  messages[i+64];
+						}
+						
+						for(var j:int=0;j<bodylengths-messagelengths;j++){
+							longmessage[j] = messages[64+messagelengths+j];
+						}
+						
+						DealwithResponse(handlemessage.toString(),messagetypes);
+						
+						bufferArray = new ByteArray();
+						
+						for(var n:int = 0;n<longmessage.length;n++){
+							bufferArray[n] = longmessage[n]; 
+						}
+						
+						judgemessage(bufferArray);
+					}
+					
+					if(messagelengths==bodylengths){
+						for(var i:int=0;i<messagelengths;i++){
+							handlemessage[i] = messages[64+i];
+						}
+						
+						try
+						{
+							
+							DealwithResponse(handlemessage.toString(),messagetypes);
+						} 
+						catch(error:Error) 
+						{
+							bufferArray = new ByteArray();
+						}
+						
+						bufferArray = new ByteArray();
+					}
+				}else{
+					Alert.show("TCP Information Error");
+				}
+			}
+			
+			var Msg:String = ""; 
+			var CallIda:String = "";
+			var CallIdb:String = "";
+			var CallIdc:String = "";
+			
+			var CallId:String = "";
+			var KeepCallId:String = "";
+			public function DealwithResponse(responsename:String,messagetype:String):void{  //处理响应：
+				
+				var container:Object = (json.JSON.decode(responsename) as Object);
+				//在页面上打印出接收到的信息
+				Msg += getdata() + "\n" + responsename + "\n\n";
+				resivemsg.text = Msg;
+				
+				if(messagetype=="10"){
+					//Alert.show("messagebody : "+responsename + " messagetype : " + messagetype);
+					
+					if(container.method=="initSession"){
+						monitorDevice(deviceNo.text);
+					}
+					
+					if(container.method=="monitorDevice"){
+						
+						device.text=deviceId;
+						setAgentState("setAgentState",deviceNo.text,agentNo.text,password.text,null,"NotReady","Login","9");
+					}
+				}
+				
+				if(messagetype=="99"){
+					
+					//Alert.show("messagebody : "+responsename + " messagetype : " + messagetype);
+					if(container.name=="agentLoggedOn"){
+						agent.text = AgentNo;
+						state.text = "登陆";
+					}
+					
+					if(container.name=="agentLoggedOff"){
+						//socket.close();
+						state.text = "退出";
+						agent.text = "";
+						device.text = "";
+					}
+					
+					if(container.name=="agentNotReady"){
+						
+						if (container.properties.reason=="9"){
+							state.text = "登录";
+						}
+						if (container.properties.reason=="0"){
+							state.text = "离席：话后处理";
+						}
+						if (container.properties.reason=="1"){
+							state.text = "离席：开会";
+						}
+						if (container.properties.reason=="2"){
+							state.text = "离席：小休";
+						}
+						if (container.properties.reason=="3"){
+							state.text = "离席：午餐";
+						}
+						if (container.properties.reason=="4"){
+							state.text = "离席：培训";
+						}
+							
+					}
+					
+					if(container.name=="agentReady"){
+						
+						state.text = "就绪";
+					}
+					
+					if(container.name=="serviceInitiated"){  //摘机
+						
+						state.text = "摘机";
+					}
+					
+					if(container.name=="delivered"){
+
+						state.text = "振铃";
+//						if(container.properties.alertingDevice!=container.properties.srcDeviceId){
+//							disconnect.visible = true;
+//						}else {
+//							answercall.visible = true;
+//						}
+						CallId = container.properties.callId;
+						if (CallIda == ""){
+							if (container.properties.callingDevice == container.properties.srcDeviceId){
+								dnisa.text = container.properties.alertingDevice;
+							}else {
+								dnisa.text = container.properties.callingDevice;
+							}
+							
+							CallIda = container.properties.callId;
+						} else{
+							
+							if (CallIdb == ""){
+								if (container.properties.callingDevice == container.properties.srcDeviceId){
+									dnisb.text = container.properties.alertingDevice;
+								}else {
+									dnisb.text = container.properties.callingDevice;
+								}
+							
+								CallIdb = container.properties.callId;
+							} else {
+								
+								if (CallIdc == ""){
+									if (container.properties.callingDevice == container.properties.srcDeviceId){
+										dnisc.text = container.properties.alertingDevice;
+									}else {
+										dnisc.text = container.properties.callingDevice;
+									}
+								
+									CallIdb = container.properties.callId;
+								}
+							
+							}
+						}
+					}
+					
+					if(container.name=="established"){ 
+						
+						state.text = "接通";
+						CallId = container.properties.callId;
+//						disconnect.visible = true;
+//						heldcall.visible = true;
+//						answercall.visible = false;
+//						singletransfer.visible = true;
+					}
+					
+					if(container.name=="connectionCleared"){
+						
+						state.text = "挂断";
+						
+						if (CallIda == container.properties.callId){
+							
+							CallIda = "";
+							dnisa.text = "";
+						}
+						if (CallIdb == container.properties.callId){
+							
+							CallIdb = "";
+							dnisb.text = "";
+						}
+						if (CallIdc == container.properties.callId){
+							
+							CallIdc = "";
+							dnisc.text = "";
+						}
+//						if (container.properties.releasingDevice == deviceId){
+//							
+//							CallIda = "";
+//							dnisa.text = "";
+//							CallIdb = "";          	container.properties.primaryOldCall		container.properties.newCall
+//							dnisb.text = "";
+//							CallIdc = "";
+//							dnisc.text = "";
+//						}
+//						disconnect.visible = false;
+//						heldcall.visible = false;
+//						retrievecall.visible = false;
+//						transfer.visible = false;
+//						singletransfer.visible = false;
+					}
+					
+					if(container.name=="held"){ 
+						
+						state.text = "保持";
+						KeepCallId = container.properties.callId;
+						//KeepCallId = CallId;
+//						retrievecall.visible = true;
+//						heldcall.visible = false;
+//						transfer.visible = true;
+//						singletransfer.visible = false;
+					}
+					
+					if(container.name=="retrieved"){  
+					
+						state.text = "取消保持";
+						CallId = container.properties.callId;
+						KeepCallId = "";
+						//CallId = KeepCallId;
+//						heldcall.visible = true;
+//						retrievecall.visible = false;
+//						singletransfer.visible = true;
+//						transfer.visible = false;
+					}
+					
+					if(container.name=="transferred"){
+						
+						state.text = "已转接";
+						
+						//if (CallIda == container.properties.callId){
+							
+							CallIda = "";
+							dnisa.text = "";
+						//}
+						//if (CallIdb == container.properties.callId){
+							
+							CallIdb = "";
+							dnisb.text = "";
+						//}
+						//if (CallIdc == container.properties.callId){
+							
+							CallIdc = "";
+							dnisc.text = "";
+						//}
+//						disconnect.visible = false;
+//						heldcall.visible = false;
+//						retrievecall.visible = false;
+//						transfer.visible = false;
+//						singletransfer.visible = false;
+					}
+					if(container.name=="conferenced"){ 
+
+						state.text = "会议";
+					}
+					
+				}
+				
+				if(messagetype=="11"){      
+					Alert.show("messagebody : "+responsename + " messagetype : " + messagetype);
+
+					if(container.method=="monitorDevice"){
+						
+						Alert.show("初始化分机失败！");
+					}
+					if(container.method=="setAgentState"){
+						
+						Alert.show("工号或密码异常！");
+					}
+					if(container.method=="makeCall"){
+						
+						Alert.show("外呼失败！");
+					}
+					if(container.method=="answerCall"){
+						
+						Alert.show("接听失败！");
+					}
+					if(container.method=="DisconnCall"||container.method=="clearConnection"){
+						
+						Alert.show("挂断失败！");
+					}
+					if(container.method=="holdCall"){
+						
+						Alert.show("保持失败！");
+					}
+					if(container.method=="retrieveCall"){
+						
+						Alert.show("取消保持失败");
+					}
+					if(container.method=="transferCall"){
+						
+						Alert.show("转接失败");
+					}
+					if(container.method=="singleStepTransferCall"){
+						
+						Alert.show("单步转接失败");
+					}
+					if(container.method=="conferenceCall"){
+							
+						Alert.show("会议失败");
+					}
+					if(container.method=="singleStepConferenceCall"){
+						
+						Alert.show("单步会议失败");
+					}
+					if(container.method=="reconnectCall"){
+						
+						Alert.show("重连失败");
+					}
+				}
+			}
+			
+			
+			//var ani:String = "";
+			
+			public function monitorDevice(DeviceId:String):void{  //监控设备
+				//ani = DeviceId;
+				var jsonobj = new Object();
+				jsonobj.method = "monitorDevice";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				sendarray[0] = DeviceId ; 
+				jsonobj.params = sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+			}
+			
+			//设置坐席状态
+			public function setAgentState(requestName:String,deviceId:String,username:String,password:String,skill:String,AgentMode:String,func:String,Suspendreason:String):void{
+				var jsonobj = new Object();
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object();
+				jsonobj.method = requestName;
+				jsonobj.object = "cti";
+				jsonobj1.deviceId = deviceId;
+				jsonobj1.agentId = username;
+				jsonobj1.password = password;
+				jsonobj1.group = skill;
+				jsonobj1.agentMode = AgentMode;
+				jsonobj1.func = func;
+				jsonobj1.reason = Suspendreason;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+			}
+			
+			public function CheckCallNum():void{  //检查外呼的号码是否为空
+				
+				if(CallNo.text==""){
+					Alert.show("请输入号码！");
+				}else{
+					makeCall(deviceId,CallNo.text,null);
+				}
+				
+			}
+			
+			public function makeCall(deviceId:String,dnis:String,uui:String):void{  //外呼
+				var jsonobj = new Object();
+				jsonobj.method = "makeCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object();
+				jsonobj1.dest=dnis;
+				jsonobj1.deviceId=deviceId;
+				jsonobj1.orgin=deviceId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+			}
+			
+			public function answerCall(deviceId:String,CallId:String):void{  //接听
+				var jsonobj = new Object;
+				jsonobj.method = "answerCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.callId = CallId;
+				jsonobj1.deviceId = deviceId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			
+			public function disconnectCall(deviceId:String,CallId:String):void{  //挂断
+				var jsonobj = new Object;
+				jsonobj.method = "clearConnection";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.callId = CallId;
+				jsonobj1.deviceId = deviceId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			public function holdCall(deviceId:String,CallId:String):void{  //保持
+				var jsonobj = new Object;
+				jsonobj.method = "holdCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.callId = CallId;
+				jsonobj1.deviceId = deviceId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			public function retrieveCall(deviceId:String,CallId:String):void{  //取消保持
+				var jsonobj = new Object;
+				jsonobj.method = "retrieveCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.callId = CallId;
+				jsonobj1.deviceId = deviceId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			
+			public function CheckCallNuma():void {  //检查单步转接的号码是否为空
+				
+				var test:String;
+				test = "{\"nis\":\"18356093753\"}";
+				if(CallNo.text == ""){
+					
+					Alert.show("请输入号码！");
+				}else{
+					
+					SingleStepTransferCall(deviceId,CallId,CallNo.text,test);
+				}
+			} 
+			
+			public function SingleStepTransferCall(deviceId:String,CallId:String,Transferdeivce:String,UUI:String):void{ //单步转接
+				
+//				var map1:Object = (json.JSON.decode(UUI) as Object);
+				
+				var jsona = new Object ;
+				var map = new Object;
+				map.uui = UUI;
+				jsona.map = map;
+				
+				var jsonobj = new Object;
+				jsonobj.method = "singleStepTransferCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.activeCall=CallId;
+				jsonobj1.deviceId = deviceId;
+				jsonobj1.transferredTo = Transferdeivce;
+				jsonobj1.userData = jsona;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+					
+			}
+			
+			public function transferCall(KeepdeviceId:String,KeepCallId:String,NowCallId:String):void{ //转接
+				var jsonobj = new Object;
+				jsonobj.method = "transferCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.activeCall = NowCallId;
+				jsonobj1.deviceId = KeepdeviceId;
+				jsonobj1.heldCall = KeepCallId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			public function CheckCallNumb():void {  //检查单步会议的号码是否为空
+				
+				if(CallNo.text == ""){
+					
+					Alert.show("请输入号码！");
+				}else{
+					
+					SingleStepConference(deviceId,CallNo.text,CallId,null)
+				}
+			} 
+			
+			public function SingleStepConference(ConferenceDevice:String,ConferencedDevice:String,NowCallId:String,UUI:String):void{//单步会议
+				
+				var jsonobj = new Object;
+				jsonobj.method = "singleStepConferenceCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.activeCall = NowCallId;
+				jsonobj1.deviceId = ConferenceDevice;
+				jsonobj1.deviceToJoin = ConferencedDevice;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}  
+			
+			public function conferenceCall(KeepdeviceId:String,KeepCallId:String,NowCallId:String):void{   //会议
+				
+				var jsonobj = new Object;
+				jsonobj.method = "conferenceCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.activeCall = NowCallId;
+				jsonobj1.deviceId = KeepdeviceId;
+				jsonobj1.heldCall = KeepCallId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			public function reconnectCall(KeepdeviceId:String,KeepCallId:String,NowdeviceId:String,NowCallId:String):void{ //重连
+				
+				var jsonobj = new Object;
+				jsonobj.method = "reconnectCall";
+				jsonobj.object = "cti";
+				var sendarray:Array = new Array();
+				var jsonobj1 = new Object;
+				jsonobj1.activeCallId = NowCallId;
+				jsonobj1.deviceId = KeepdeviceId;
+				jsonobj1.heldCallId = KeepCallId;
+				sendarray[0] = jsonobj1;
+				jsonobj.params=sendarray;
+				requestbody = json.JSON.encode(jsonobj);
+				datalength = requestbody.length;
+				request ="CT4001" + getdatalength(datalength)+ getInvokeID()+"                                          "+ requestbody;
+				sendMessage(request);
+				
+			}
+			
+			public function clearMsg():void{		//清空页面上显示的服务器发回的信息
+				resivemsg.text = "";
+				Msg = "";
+			}
+			
+		]]>
+	</fx:Script>
+	
+	
+	<s:Button x="96" y="153" label="外呼" id="makecall" click="CheckCallNum()" />
+	<s:TextInput x="200" y="155" height="20"  id="CallNo"/>
+	<s:Button x="378" y="153" label="接听" id="answercall" click="answerCall(deviceId,CallId)" visible="true"/>
+	
+	<s:Label x="256" y="50" text="" id="dnisa" width="120" height="20"/>
+	<s:Button x="380" y="50" label="挂断" id="disconnecta" click="disconnectCall(deviceId,CallIda)" visible="true"/>
+	<s:Button x="460" y="50" label="保持" id="heldcalla" click="holdCall(deviceId,CallIda)" visible="true"/>
+	<s:Button x="540" y="50" label="取消保持" id="retrievecalla" click="retrieveCall(deviceId,CallIda)" visible="true"/>
+	<s:Button x="620" y="50" label="重连" id="reconnecta" click="reconnectCall(deviceId,CallIda,deviceId,CallId)" visible="true"/>
+	
+	<s:Label x="276" y="80" text="" id="dnisb" width="120" height="20"/>
+	<s:Button x="380" y="80" label="挂断" id="disconnectb" click="disconnectCall(deviceId,CallIdb)" visible="true"/>
+	<s:Button x="460" y="80" label="保持" id="heldcallb" click="holdCall(deviceId,CallIdb)" visible="true"/>
+	<s:Button x="540" y="80" label="取消保持" id="retrievecallb" click="retrieveCall(deviceId,CallIdb)" visible="true"/>
+	<s:Button x="620" y="80" label="重连" id="reconnectb" click="reconnectCall(deviceId,CallIdb,deviceId,CallId)" visible="true"/>
+	
+	<s:Label x="276" y="110" text="" id="dnisc" width="120" height="20"/>
+	<s:Button x="380" y="110" label="挂断" id="disconnectc" click="disconnectCall(deviceId,CallIdc)" visible="true"/>
+	<s:Button x="460" y="110" label="保持" id="heldcallc" click="holdCall(deviceId,CallIdc)" visible="true"/>
+	<s:Button x="540" y="110" label="取消保持" id="retrievecallc" click="retrieveCall(deviceId,CallIdc)" visible="true"/>
+	<s:Button x="620" y="110" label="重连" id="reconnectc" click="reconnectCall(deviceId,CallIdc,deviceId,CallId)" visible="true"/>
+	
+	<s:Button x="455" y="65" label="转接" id="transfer" click="transferCall(deviceId,KeepCallId,CallId)" visible="false"/>
+	<s:Button x="455" y="105" label="单步转接" id="singletransfer" click="CheckCallNuma()" visible="false"/>
+	
+	<s:Button x="555" y="65" label="会议" id="conference" click="conferenceCall(deviceId,KeepCallId,CallId)" visible="false"/>
+	<s:Button x="555" y="105" label="单步会议" id="singleconference"  click="CheckCallNumb()" visible="false"/>
+	
+	<!--		-->
+	<mx:PopUpMenuButton x="620" y="20" width="70" height="20" label="状态"
+						dataProvider="{agetnsatatdata}" fontFamily="中易黑体" fontSize="13"
+						fontStyle="normal" fontWeight="bold"
+						itemClick="itemClickHandlera(event)"/>
+	<mx:PopUpMenuButton x="95" y="80" width="70" height="20" label="操作" 
+						dataProvider="{ButtondataPop}" fontFamily="中易宋体" fontSize="13" 
+						fontStyle="normal" fontWeight="bold"
+						itemClick="itemClickHandlerb(event)"/>
+	
+	<s:Label x="95" y="20" text="工号" width="70" height="25"/>
+	<s:Label x="165" y="20" text="" width="70" height="25" id = "agent"/>
+	<s:Label x="235" y="20" text="分机" width="70" height="25"/>
+	<s:Label x="305" y="20" text="" width="70" height="25" id = "device"/>
+	<s:Label x="460" y="20" text="未登录" width="130" height="25" id = "state"  />
+	
+	<s:Button x="620" y="200" label="清除消息" click="clearMsg()"/>
+	<s:Label x="95" y="200" text="信息内容：" width="70" height="25"/>
+	<s:TextArea x="95" y="230" width="595" height="380" id = "resivemsg" />
+	
+	<mx:TabNavigator x="635" y="5" width="250" height="180" id="loginwindow" visible="false">
+		<mx:Canvas width="100%" height="100%" label="登陆" fontSize="17" fontStyle="normal"
+				   fontWeight="normal">
+			<s:Label x="25" y="15"  fontFamily="中易黑体" fontSize="15" fontWeight="normal" text="工号"/>
+			<s:Label x="25" y="45"  fontFamily="中易黑体" fontSize="15" fontWeight="normal" text="密码"/>
+			<s:Label x="25" y="75"  fontFamily="中易黑体" fontSize="15" fontWeight="normal" text="分机"/>
+			<s:TextInput x="90" y="15" width="130" text="36103"  id="agentNo"/>
+			<s:TextInput x="90" y="45" width="130" text="000000"  id="password" displayAsPassword="true"/>
+			<s:TextInput x="90" y="75" width="130" text="6825"  id="deviceNo"/>
+			<s:Button x="25" y="110" width="69" label="登陆"  click="LoginWindows()"/>
+			<s:Button x="150" y="110" width="69" label="取消"  click="cancerWindows()"/>
+		</mx:Canvas>
+		<mx:Canvas width="100%" height="100%" label="CTIServer">
+			<s:Label x="25" y="15" fontFamily="中易黑体" fontSize="15" fontWeight="normal" text="CTIServer"/>
+			<s:Label x="25" y="45" fontFamily="中易黑体" fontSize="15" fontWeight="normal" text="Port"/>
+			<s:TextInput x="90" y="15" width="130" text="172.16.2.65" id="CTIServers" />
+			<s:TextInput x="90" y="45" width="130" text="8123" id="ports"/>
+		</mx:Canvas>
+	</mx:TabNavigator>
+</s:Application>
